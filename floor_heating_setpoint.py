@@ -42,31 +42,35 @@ def calc_room_temperature(outdoor_temp, heating_setpoint):
     result = minimize(objective_func, initial_guess, method="Nelder-Mead")
     return result.x[0]
 
-# 目標室温との差を求める
-def calc_room_temp_diff(room_setpoint, outdoor_temp, heating_setpoint):
-    room_temp = calc_room_temperature(outdoor_temp, heating_setpoint)
-    diff = room_setpoint - room_temp
-    return abs(diff)
-
 # 目標室温にするための床暖設定温度を求める
 def calc_heating_setpoint(room_setpoint, outdoor_temp):
-    objective_func = partial(calc_room_temp_diff, room_setpoint, outdoor_temp)
+    objective_func = partial(calc_heat_diff, outdoor_temp=outdoor_temp, room_temp=room_setpoint)
     initial_guess = [room_setpoint] # 床暖設定の初期値
-    result = minimize(objective_func, initial_guess, method="Nelder-Mead")
-    return result.x[0]
+    result = minimize(lambda x: objective_func(heating_setpoint=x), initial_guess, method="Nelder-Mead")
+    return np.ceil(result.x[0])
 
 # 外気温別の床暖設定をグラフ化
 room_setpoint = 23 # 目標室温
-outdoor_temp = np.round(np.arange(-5.0, 15.0, 0.1), 1)
+outdoor_temp = np.round(np.arange(-5.0, 15.0, 1), 1)
 heating_setpoint = [calc_heating_setpoint(room_setpoint, x) for x in outdoor_temp]
-plt.plot(outdoor_temp, heating_setpoint)
+heating_setpoint_list = pd.DataFrame(heating_setpoint, index=outdoor_temp, columns=["床暖設定温度[℃]"])
+heating_setpoint_list.index.name="外気温[℃]"
+print(heating_setpoint_list)
+
+# グラフ描画
+plt.plot(heating_setpoint_list)
+plt.grid()
+plt.xlabel("Outdoor temperature[℃]")
+plt.ylabel("Floor heating setpoint[℃]")
+
+
 
 # 2022年の気温から、夜間最低温度と昼平均温度を計算して、推奨設定を計算
 # 夜間は18:00～9:00とする
 hour_start_night = 18
 hour_end_night = 9
 # 横浜の2022年の気温データ読み込み(https://www.data.jma.go.jp/gmd/risk/obsdl/index.php)
-temp_act = pd.read_csv("temperature_yokohama_2022.csv", index_col=0, encoding="utf-8-sig")
+temp_act = pd.read_csv("data.csv", header=2, index_col=0, encoding="shift-jis")
 temp_act.index = pd.to_datetime(temp_act.index)
 # 10月～4月を対象に計算
 month = [10, 11, 12, 1, 2, 3, 4]
@@ -78,12 +82,12 @@ for m in month:
     temp_night = temp_month[(temp_month.index.hour >= hour_start_night) | (temp_month.index.hour < hour_end_night)]
     temp_day = temp_month[(temp_month.index.hour < hour_start_night) & (temp_month.index.hour >= hour_end_night)]
     # 夜間最低温度、昼間平均気温を格納
-    temp_min_avg.loc[m] = [temp_night.min()[0], temp_day.mean()[0]]
+    temp_min_avg.loc[m] = [temp_night.min()[0], round(temp_day.mean()[0],1)]
     # 目標室温を保つ設定温度を計算して格納
     setpoint_night = calc_heating_setpoint(room_setpoint, temp_night.min()[0])
     setpoint_day = calc_heating_setpoint(room_setpoint, temp_day.mean()[0])
-    setpoint.loc[m] = [np.ceil(setpoint_night), np.ceil(setpoint_day)]
+    setpoint.loc[m] = [setpoint_night, setpoint_day]
 
 # 計算結果を表示
-print(temp_min_avg.round(1))
+print(temp_min_avg)
 print(setpoint)
